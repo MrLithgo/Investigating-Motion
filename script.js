@@ -439,9 +439,4 @@ function initSimulation() {
 }
 
 window.addEventListener('load', initSimulation);
-window.addEventListener('resize', function() {
-    // Handle screen rotation/resize
-    resetConePosition();
-   // positionRuler();
-}
-                       )
+
