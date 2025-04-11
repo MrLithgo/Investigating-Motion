@@ -23,6 +23,8 @@ const AIR_DENSITY = 1.225; // kg/m³
 const DRAG_COEFFICIENT = 0.5; // Typical for a cone
 const GRAVITY = 9.81; // m/s²
 
+
+
 // Set initial cone position
 function resetConePosition() {
     const height = parseInt(heightInput.value);
@@ -177,30 +179,48 @@ function resetExperiment() {
 startBtn.addEventListener('click', startExperiment);
 stopBtn.addEventListener('click', stopExperiment);
 resetBtn.addEventListener('click', resetExperiment);
-cone.addEventListener('mousedown', function(e) {
-    if (isDropping) return;
-    
+// Get touch position from event
+function getTouchPos(touchEvent) {
+    return {
+        x: touchEvent.touches[0].clientX,
+        y: touchEvent.touches[0].clientY
+    };
+}
+
+// Cone dragging with touch support
+cone.addEventListener('mousedown', startDragCone);
+cone.addEventListener('touchstart', startDragCone, { passive: false });
+
+function startDragCone(e) {
     e.preventDefault();
-    let startY = e.clientY;
-    let startBottom = parseInt(cone.style.bottom) || 0;
+    if (isDropping || isTiming) return;
+    
+    const startPos = e.type === 'touchstart' ? getTouchPos(e) : { x: e.clientX, y: e.clientY };
+    const startBottom = parseInt(cone.style.bottom) || parseInt(heightInput.value) + 20;
     
     function moveCone(e) {
-        const newBottom = startBottom + (startY - e.clientY);
-        const maxHeight = simulationArea.clientHeight - cone.clientHeight-20;
-       
-        if (newBottom >= 20 && newBottom <= maxHeight) {
-            cone.style.bottom = `${newBottom}px`;
-            heightInput.value = newBottom-20;
-        }
+        const currentPos = e.type.includes('touch') ? getTouchPos(e) : { x: e.clientX, y: e.clientY };
+        const deltaY = startPos.y - currentPos.y;
+        let newBottom = startBottom + deltaY;
+        const maxHeight = simulationArea.clientHeight - cone.clientHeight;
+        
+        newBottom = Math.max(20, Math.min(maxHeight, newBottom));
+        cone.style.bottom = `${newBottom}px`;
+        heightInput.value = newBottom - 20;
     }
     
     function stopMoving() {
         document.removeEventListener('mousemove', moveCone);
         document.removeEventListener('mouseup', stopMoving);
+        document.removeEventListener('touchmove', moveCone);
+        document.removeEventListener('touchend', stopMoving);
     }
-  document.addEventListener('mousemove', moveCone);
+    
+    document.addEventListener('mousemove', moveCone);
     document.addEventListener('mouseup', stopMoving);
-});
+    document.addEventListener('touchmove', moveCone, { passive: false });
+    document.addEventListener('touchend', stopMoving);
+}
 
 // Real-time height update
 heightInput.addEventListener('input', () => {
@@ -283,7 +303,7 @@ function initRuler() {
     ruler.style.left = `${simulationArea.clientWidth - 50}px`;
     ruler.style.top = `${(simulationArea.clientHeight - 300) / 2}px`;
     createRealisticRuler();
-    initRulerDrag();
+    startDragRuler();
 }
 
 // Create realistic ruler markings
@@ -333,61 +353,95 @@ function createRealisticRuler() {
 }
 
 // Initialize ruler dragging
-function initRulerDrag() {
-    let isDragging = false;
-    let startX, startY, startLeft, startTop;
-    
-    ruler.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        isDragging = true;
-        
-        // Get initial positions
-        startX = e.clientX;
-        startY = e.clientY;
-        startLeft = parseInt(ruler.style.left);
-        startTop = parseInt(ruler.style.top);
-        
-        // Change cursor during drag
-        document.body.style.cursor = 'grabbing';
-        
-        // Add event listeners
-        document.addEventListener('mousemove', moveRuler);
-        document.addEventListener('mouseup', stopDrag);
-    });
-    
-    function moveRuler(e) {
-        if (!isDragging) return;
-        
-        // Calculate new position
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        
-        let newLeft = startLeft + dx;
-        let newTop = startTop + dy;
-        
-        // Constrain to simulation area
-        newLeft = Math.max(0, Math.min(
-            simulationArea.clientWidth - ruler.offsetWidth, 
-            newLeft
-        ));
-        
-        newTop = Math.max(0, Math.min(
-            simulationArea.clientHeight - ruler.offsetHeight, 
-            newTop
-        ));
-        
-        // Apply new position
-        ruler.style.left = `${newLeft}px`;
-        ruler.style.top = `${newTop}px`;
-    }
-    
-    function stopDrag() {
-        isDragging = false;
-        document.body.style.cursor = '';
-        document.removeEventListener('mousemove', moveRuler);
-        document.removeEventListener('mouseup', stopDrag);
+// Ruler dragging with touch support
+// Unified touch/mouse position getter
+function getPosition(event) {
+    if (event.touches) {
+        return {
+            x: event.touches[0].clientX,
+            y: event.touches[0].clientY
+        };
+    } else {
+        return {
+            x: event.clientX,
+            y: event.clientY
+        };
     }
 }
 
-// Initialize when window loads
-window.addEventListener('load', initRuler);
+// Initialize ruler dragging with proper Y movement
+function initRulerDrag() {
+    ruler.addEventListener('mousedown', startDragRuler);
+    ruler.addEventListener('touchstart', startDragRuler, { passive: false });
+
+    function startDragRuler(e) {
+        e.preventDefault();
+        const pos = getPosition(e);
+        const startX = pos.x;
+        const startY = pos.y;
+        const startLeft = parseInt(ruler.style.left) || 0;
+        const startTop = parseInt(ruler.style.top) || 0;
+        const startBottom = parseInt(ruler.style.bottom) || 0;
+
+        function moveRuler(e) {
+            const currentPos = getPosition(e);
+            const dx = currentPos.x - startX;
+            const dy = currentPos.y - startY;
+
+            // Calculate new position using bottom (not top)
+            let newLeft = startLeft + dx;
+            let newBottom = startBottom - dy; // Subtract because bottom increases as Y decreases
+
+            // Constrain to simulation area
+            newLeft = Math.max(0, Math.min(
+                simulationArea.clientWidth - ruler.offsetWidth,
+                newLeft
+            ));
+
+            newBottom = Math.max(20, Math.min(
+                simulationArea.clientHeight - ruler.offsetHeight,
+                newBottom
+            ));
+
+            ruler.style.left = `${newLeft}px`;
+            ruler.style.bottom = `${newBottom}px`;
+            ruler.style.top = 'auto'; // Ensure we're using bottom positioning
+        }
+
+        function stopMoving() {
+            document.removeEventListener('mousemove', moveRuler);
+            document.removeEventListener('mouseup', stopMoving);
+            document.removeEventListener('touchmove', moveRuler);
+            document.removeEventListener('touchend', stopMoving);
+            document.body.style.cursor = '';
+        }
+
+        document.body.style.cursor = 'grabbing';
+        document.addEventListener('mousemove', moveRuler);
+        document.addEventListener('mouseup', stopMoving);
+        document.addEventListener('touchmove', moveRuler, { passive: false });
+        document.addEventListener('touchend', stopMoving);
+    }
+}
+
+// Initialize ruler position
+function initRulerPosition() {
+    ruler.style.left = '30px';
+    ruler.style.bottom = '20px'; // Align with ground
+    ruler.style.top = 'auto';
+}
+
+// Initialize everything
+function initSimulation() {
+    initRulerPosition();
+    createRealisticRuler();
+    initRulerDrag();
+}
+
+window.addEventListener('load', initSimulation);
+window.addEventListener('resize', function() {
+    // Handle screen rotation/resize
+    resetConePosition();
+   // positionRuler();
+}
+                       )
